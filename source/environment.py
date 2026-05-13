@@ -6,6 +6,7 @@ ACTIONS = ["Attack_Fire", "Attack_Water", "Attack_Grass", "Heal", "Defend"]
 
 MAX_HP = 100
 MAX_MANA = 50
+MAX_POTIONS = 3
 
 # Costs and effects
 COST_ATTACK = 10
@@ -18,13 +19,13 @@ BASE_DAMAGE = 20
 PROBA_MISS = 0.10      # 10% chance to miss
 PROBA_CRIT = 0.15      # 15% chance for a critical hit
 CRIT_MULTIPLIER = 1.5
-DEFEND_MULTIPLIER = 0.5 # Damage taken is halved when defending
+DEFEND_MULTIPLIER = 0.5     # Damage taken divided by 2 when defending
 
 # Type advantage chart (Attacker -> Defender)
 TYPE_CHART = {
-    "Fire": {"Grass": 2.0, "Water": 0.5, "Fire": 1.0},
-    "Water": {"Fire": 2.0, "Grass": 0.5, "Water": 1.0},
-    "Grass": {"Water": 2.0, "Fire": 0.5, "Grass": 1.0}
+    "Fire": {"Grass": 1.2, "Water": 0.8, "Fire": 1.0},
+    "Water": {"Fire": 1.2, "Grass": 0.8, "Water": 1.0},
+    "Grass": {"Water": 1.2, "Fire": 0.8, "Grass": 1.0}
 }
 
 class BattleEnvironment:
@@ -41,8 +42,8 @@ class BattleEnvironment:
     def reset(self):
         """Resets the environment for a new battle"""
         self.state = {
-            "AI": {"HP": MAX_HP, "Mana": MAX_MANA, "is_defending": False},
-            "Bot": {"HP": MAX_HP, "Mana": MAX_MANA, "is_defending": False}
+            "AI": {"HP": MAX_HP, "Mana": MAX_MANA, "is_defending": False, "Potions": MAX_POTIONS},
+            "Bot": {"HP": MAX_HP, "Mana": MAX_MANA, "is_defending": False, "Potions": MAX_POTIONS}
         }
         return self.get_state()
 
@@ -61,7 +62,7 @@ class BattleEnvironment:
 
 
     def get_winner(self):
-        """Returns the winner of the battle"""
+        """Returns the winner"""
         if self.state["AI"]["HP"] <= 0 and self.state["Bot"]["HP"] > 0:
             return "Bot"
         
@@ -73,7 +74,7 @@ class BattleEnvironment:
 
 
 
-    def execute_turn(self, action_ai, action_bot):
+    def execute_turn(self, action_ai, action_bot, verbose=True):
         """Executes the actions for both players in a single turn"""
 
         # Reset defending stance at the beginning of the turn
@@ -81,17 +82,17 @@ class BattleEnvironment:
         self.state["Bot"]["is_defending"] = False
 
         # Phase 1: Priority moves (Defend and Heal happen before attacks)
-        self.process_action("AI", "Bot", action_ai, is_priority_phase=True)
-        self.process_action("Bot", "AI", action_bot, is_priority_phase=True)
+        self.process_action("AI", "Bot", action_ai, is_priority_phase=True, verbose=verbose)
+        self.process_action("Bot", "AI", action_bot, is_priority_phase=True, verbose=verbose)
 
         # Phase 2: Attack moves
-        self.process_action("AI", "Bot", action_ai, is_priority_phase=False)
-        self.process_action("Bot", "AI", action_bot, is_priority_phase=False)
+        self.process_action("AI", "Bot", action_ai, is_priority_phase=False, verbose=verbose)
+        self.process_action("Bot", "AI", action_bot, is_priority_phase=False, verbose=verbose)
 
 
 
-    def process_action(self, attacker, defender, action, is_priority_phase):
-        """Processes a single action based on the current phase."""
+    def process_action(self, attacker, defender, action, is_priority_phase, verbose=True):
+        """Processes a single action based on the current phase"""
         if self.state[attacker]["HP"] <= 0:
             return # A defeated player cannot act
         
@@ -102,17 +103,24 @@ class BattleEnvironment:
                 self.state[attacker]["is_defending"] = True
                 self.state[attacker]["Mana"] = min(MAX_MANA, self.state[attacker]["Mana"] + REGEN_DEFEND)
 
-                print(f"[{attacker}] Defend (+{REGEN_DEFEND} Mana)")
+                if verbose :
+                    print(f"[{attacker}] Defend (+{REGEN_DEFEND} Mana)")
                 
             elif action == "Heal":
-                if self.state[attacker]["Mana"] >= COST_HEAL:
-                    self.state[attacker]["HP"] = min(MAX_HP, self.state[attacker]["HP"] + HEAL_AMOUNT)
-                    self.state[attacker]["Mana"] -= COST_HEAL
+                if self.state[attacker]["Potions"] <= 0:
+                    if verbose:
+                        print(f"[{attacker}] Heal (FAILED: NO POTIONS LEFT)")
 
-                    print(f"[{attacker}] Heal (+{HEAL_AMOUNT} HP, -{COST_HEAL} Mana)")
+                elif self.state[attacker]["Mana"] < COST_HEAL:
+                    if verbose:
+                        print(f"[{attacker}] Heal (FAILED: NOT ENOUGH MANA)")
 
                 else:
-                    print(f"[{attacker}] Heal (FAILED: NOT ENOUGH MANA)")
+                    self.state[attacker]["HP"] = min(MAX_HP, self.state[attacker]["HP"] + HEAL_AMOUNT)
+                    self.state[attacker]["Mana"] -= COST_HEAL
+                    self.state[attacker]["Potions"] -= 1 
+                    if verbose:
+                        print(f"[{attacker}] Heal (+{HEAL_AMOUNT} HP, -{COST_HEAL} Mana, {self.state[attacker]['Potions']} potions left)")
 
             return
 
@@ -120,14 +128,18 @@ class BattleEnvironment:
         if action.startswith("Attack"):
             
             if self.state[attacker]["Mana"] < COST_ATTACK:
-                print(f"[{attacker}] {action} (FAILED: NOT ENOUGH MANA)")
+                if verbose:
+                    print(f"[{attacker}] {action} (FAILED: NOT ENOUGH MANA)")
+
                 return 
             
             self.state[attacker]["Mana"] -= COST_ATTACK
 
             # Attack misses
             if random.random() < PROBA_MISS:
-                print(f"[{attacker}] {action} (-{COST_ATTACK} Mana) -> (MISSED)")
+                if verbose:                
+                    print(f"[{attacker}] {action} (-{COST_ATTACK} Mana) -> (MISSED)")
+
                 return 
 
             # Calculate base damage
@@ -160,5 +172,5 @@ class BattleEnvironment:
             # Apply final damage to the defender
             self.state[defender]["HP"] = max(0, self.state[defender]["HP"] - damage)
             
-            # Final clean log print
-            print(f"[{attacker}] {action} (-{COST_ATTACK} Mana) -> [{defender}] loses {damage} HP{crit_tag}{def_tag}")
+            if verbose:
+                print(f"[{attacker}] {action} (-{COST_ATTACK} Mana) -> [{defender}] loses {damage} HP{crit_tag}{def_tag}")
