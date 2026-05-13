@@ -136,6 +136,10 @@ def test_rl_agent(agent, env):
         env.execute_turn(action_ai, action_bot, verbose=True)
         turn_number += 1
 
+        print("-" * 45)
+        print(f"AI  ({env.ai_type})  - HP: {state['AI']['HP']:>3} | Mana: {state['AI']['Mana']:>2} | Potions: {state['AI']['Potions']}")
+        print(f"Bot ({env.bot_type}) - HP: {state['Bot']['HP']:>3} | Mana: {state['Bot']['Mana']:>2} | Potions: {state['Bot']['Potions']}")
+
         if turn_number > 100:
             print("\nLIMIT REACHED, NO WINNER!")
             return
