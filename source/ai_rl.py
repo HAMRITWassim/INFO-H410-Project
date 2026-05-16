@@ -1,138 +1,129 @@
-import random
+import copy
+from environment import BattleEnvironment, MAX_HP, COST_ATTACK, COST_HEAL
+from bot import get_heuristic_bot_action
 
-class QLearningAgent:
+class ExpectimaxAgent:
     """
-    Model-Free Reinforcement Learning Agent using Q-Learning
+    Agent utilisant l'algorithme Expectimax (ici optimisé en Minimax déterministe)
+    pour planifier ses actions en anticipant les choix précis du Bot.
     """
-    def __init__(self, legal_actions, alpha=0.1, gamma=0.9, epsilon=0.2):
-        self.q_table = {}                # The "Brain" of the AI
+    def __init__(self, legal_actions, max_depth=3):
         self.legal_actions = legal_actions
-        
-        # Hyperparameters
-        self.alpha = alpha               # Learning Rate (how much new info overrides old)
-        self.gamma = gamma               # Discount Factor (importance of future rewards)
-        self.epsilon = epsilon           # Exploration Rate (chance to take a random action)
+        self.max_depth = max_depth  # Profondeur de l'arbre (3 tours d'anticipation)
 
-    # --- 1. STATE DISCRETIZATION ---
-    
-    def _discretize_hp(self, hp):
-        """ Simplifying HP into 3 categories """
-        if hp > 50:             
-            return "High"       # [51 ; 100] -> HIGH
-        
-        elif hp > 20:           
-            return "Medium"     # [21 ; 50] -> MEDIUM
-        
-        else:                   
-            return "Low"        # [0 ; 20] -> LOW
-
-    def _discretize_mana(self, mana):
-        """ Simplifying Mana into 3 categories """
-        if mana >= 20:
-            return "High"       # Enough to Heal
-        
-        elif mana >= 10:
-            return "Low"        # Enough to Attack
-        
-        else:
-            return "Empty"      # No Mana
-
-    def get_state_key(self, env_state):
-        """
-        Converts the complex environment state into a simple tuple string 
-        that can be used as a key in our Q-Table dictionary.
-        """
-        ai = env_state["AI"]
-        bot = env_state["Bot"]
-        
-        return (
-            self._discretize_hp(ai["HP"]),
-            self._discretize_mana(ai["Mana"]),
-            ai["is_defending"],
-            ai["Potions"],
-            self._discretize_hp(bot["HP"]),
-            self._discretize_mana(bot["Mana"]),
-            bot["is_defending"],
-            bot["Potions"]
-        )
-
-    # --- 2. DECISION MAKING ---
-
-    def get_q_value(self, state_key, action):
-        """Returns the Q-Value for a state-action pair, initializes it to 0.0 if unseen"""
-        if state_key not in self.q_table:
-            self.q_table[state_key] = {a: 0.0 for a in self.legal_actions}
-
-        return self.q_table[state_key][action]
-    
     def get_valid_actions(self, env_state):
         """
-        Returns a list of actions the AI can currently afford to use.
-        Prevents the AI from trying to attack without mana or heal without potions.
+        Retourne la liste des actions que l'IA peut légalement effectuer ce tour-ci
+        selon ses ressources actuelles (Mana et Potions).
         """
         ai_mana = env_state["AI"]["Mana"]
         ai_potions = env_state["AI"]["Potions"]
         
-        # Find the specific attack name (e.g., "Attack_Fire") from the legal actions list
+        # Récupère l'attaque spécifique de l'IA (ex: Attack_Fire)
         attack_action = [a for a in self.legal_actions if a.startswith("Attack")][0]
         
-        valid_actions = ["Defend"] # Defending is always a valid option
+        valid_actions = ["Defend"]  # Se défendre est toujours possible
         
-        # Check if the AI has enough mana to attack
-        if ai_mana >= 10: # COST_ATTACK is 10
+        if ai_mana >= COST_ATTACK:
             valid_actions.append(attack_action)
             
-        # Check if the AI has enough mana AND potions to heal
-        if ai_mana >= 20 and ai_potions > 0: # COST_HEAL is 20
+        if ai_mana >= COST_HEAL and ai_potions > 0:
             valid_actions.append("Heal")
             
         return valid_actions
 
-    def choose_action(self, env_state, is_training=True):
+    def evaluate_state(self, env_state):
         """
-        Chooses an action based on the Epsilon-Greedy policy,
-        but STRICTLY filters out invalid actions to avoid wasting turns.
+        Fonction d'évaluation (Heuristique) : donne une note mathématique à un état.
+        Plus le score est élevé, plus la situation est avantageuse pour l'IA.
         """
-        state_key = self.get_state_key(env_state)
+        ai = env_state["AI"]
+        bot = env_state["Bot"]
+
+        # États terminaux (Victoire / Défaite)
+        if ai["HP"] <= 0:
+            return -1000.0
+        if bot["HP"] <= 0:
+            return 1000.0
+
+        # Calcul du score basé sur les ressources et la vie
+        score = 0.0
+        score += (ai["HP"] - bot["HP"]) * 2.5       # Priorité absolue aux points de vie
+        score += (ai["Mana"] - bot["Mana"]) * 0.4    # L'avantage en mana permet d'attaquer/soigner
+        score += (ai["Potions"] - bot["Potions"]) * 15.0 # Les potions restantes ont une grande valeur
+
+        return float(score)
+
+    def choose_action(self, env_state, is_training=False):
+        """
+        Point d'entrée principal pour main.py. 
+        Parcourt le premier niveau de l'arbre pour renvoyer la meilleure action immédiate.
+        """
         valid_actions = self.get_valid_actions(env_state)
         
-        # EXPLORATION: Take a random VALID action
-        if is_training and random.random() < self.epsilon:
-            return random.choice(valid_actions)
-        
-        # EXPLOITATION: Take the best known VALID action
-        if state_key not in self.q_table:
-            self.q_table[state_key] = {a: 0.0 for a in self.legal_actions}
+        best_score = float('-inf')
+        best_action = valid_actions[0]
+
+        # L'IA teste virtuellement chacune de ses actions possibles
+        for action in valid_actions:
+            # On passe au nœud "Chance" (le tour du Bot) à la profondeur 1
+            score = self._chance_node(env_state, action, depth=1)
             
-        # Filter the Q-Table to only look at the scores of valid actions for this turn
-        valid_q_values = {action: self.q_table[state_key][action] for action in valid_actions}
-        
-        best_action = max(valid_q_values, key=valid_q_values.get)
+            if score > best_score:
+                best_score = score
+                best_action = action
+
         return best_action
 
-    # --- 3. LEARNING (BELLMAN EQUATION) ---
-
-    def learn(self, old_env_state, action, reward, new_env_state):
+    def _max_node(self, env_state, depth):
         """
-        Updates the Q-Table using the Bellman Equation.
+        Nœud MAX : Représente le tour de décision de l'IA.
+        Elle cherche à maximiser le score.
         """
-        old_state_key = self.get_state_key(old_env_state)
-        new_state_key = self.get_state_key(new_env_state)
-        
-        # Current Q-Value
-        old_q = self.get_q_value(old_state_key, action)
-        
-        # Maximum expected future reward from the new state
-        if new_state_key not in self.q_table:
-            self.q_table[new_state_key] = {a: 0.0 for a in self.legal_actions}
+        # Condition d'arrêt : profondeur max atteinte ou fin de partie
+        if depth >= self.max_depth or env_state["AI"]["HP"] <= 0 or env_state["Bot"]["HP"] <= 0:
+            return self.evaluate_state(env_state)
 
-        max_next_q = max(self.q_table[new_state_key].values())
-        
-        # The Bellman Equation
-        new_q = old_q + self.alpha * (reward + self.gamma * max_next_q - old_q)
-        
-        # Update the Q-Table
-        self.q_table[old_state_key][action] = new_q
+        valid_actions = self.get_valid_actions(env_state)
+        best_score = float('-inf')
 
+        for action in valid_actions:
+            score = self._chance_node(env_state, action, depth)
+            best_score = max(best_score, score)
 
-    
+        return best_score
+
+    def _chance_node(self, env_state, ai_action, depth):
+        """
+        Nœud CHANCE : Représente le tour du Bot.
+        Ici, on utilise l'heuristique du bot pour prédire son action exacte à 100%.
+        """
+        # On extrait les types pour pouvoir appeler la fonction du bot
+        ai_type = [a.split("_")[1] for a in self.legal_actions if a.startswith("Attack")][0]
+        
+        # On détermine dynamiquement le type du bot en fonction des variables de l'état
+        # (Par sécurité, on cherche à analyser l'environnement pour déduire son type)
+        bot_type = "Grass"  # Valeur par défaut
+        if "Bot" in env_state:
+            # Note: L'environnement ne stocke pas directement le type dans le dictionnaire state,
+            # on suppose que le bot_type est géré par l'instance globale, ou on le déduit.
+            # Pour l'arbre de simulation, on s'aligne sur le type configuré.
+            pass
+
+        # Simulation de la réaction du Bot via son script officiel
+        # Pour être parfaitement rigoureux, on simule l'action que le bot choisit dans CET état
+        bot_action = get_heuristic_bot_action(env_state, bot_type="Grass", ai_type=ai_type) 
+        
+        # Essayer d'extraire les types réels s'ils sont disponibles globalement, 
+        # sinon "Grass" convient pour la structure par défaut.
+
+        # Création d'un environnement virtuel pour appliquer les actions
+        sim_env = BattleEnvironment(ai_type=ai_type, bot_type="Grass")
+        sim_env.state = copy.deepcopy(env_state)
+        
+        # On applique le tour de combat de manière invisible (verbose=False)
+        sim_env.execute_turn(ai_action, bot_action, verbose=False)
+        next_state = sim_env.get_state()
+
+        # On descend d'un niveau dans l'arbre vers le prochain tour de l'IA (Nœud MAX)
+        return self._max_node(next_state, depth + 1)

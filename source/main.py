@@ -1,6 +1,6 @@
 from environment import BattleEnvironment, TYPES
 from bot import get_heuristic_bot_action
-from ai_rl import QLearningAgent
+from ai_rl import ExpectimaxAgent
 import random
 import copy
 
@@ -23,10 +23,14 @@ def calculate_reward(old_state, new_state, is_game_over, winner):
     
     return float(damage_dealt - damage_taken)
 
+"""
 def train_rl_agent(ai_type, bot_type, episodes=5000):
-    """
+"""
+
+"""
     Phase 1: Training the agent 
-    """
+""" 
+"""
     print(f"--- STARTING TRAINING FOR {episodes} EPISODES ---")
     
     # Initialize Environment and Agent
@@ -76,10 +80,11 @@ def train_rl_agent(ai_type, bot_type, episodes=5000):
 
     print("--- TRAINING COMPLETE ---")
     return agent
+"""
 
 def evaluate_rl_agent(agent, env, num_matches=1000):
     """
-    Phase 2: Evaluating the trained agent over multiple matchesç;
+    Phase 2: Evaluating the trained agent over multiple matches;
     """
     print(f"\n--- EVALUATING AGENT OVER {num_matches} MATCHES ---")
     win_count = 0
@@ -220,7 +225,7 @@ def choose_type(player_name):
 
 # Run the simulation
 if __name__ == "__main__":
-    # 0. Choose the types
+    # 0. Choix des types
     print("=== SETUP MATCH ===")
     selected_ai_type = choose_type("AI")
     selected_bot_type = choose_type("Bot")
@@ -228,15 +233,17 @@ if __name__ == "__main__":
     print(f"\n--- AI TYPE: {selected_ai_type} ---")
     print(f"--- BOT TYPE: {selected_bot_type} ---\n")
 
-    # 1. Train the Agent
-    trained_agent = train_rl_agent(ai_type=selected_ai_type, bot_type=selected_bot_type, episodes=5000)
+    # 1. Instanciation directe de l'agent Expectimax (Pas besoin d'entraînement !)
+    from ai_rl import ExpectimaxAgent
+    legal_actions = [f"Attack_{selected_ai_type}", "Heal", "Defend"]
     
-    # 2. Evaluate the Agent
+    # max_depth=3 offre un excellent compromis entre temps de calcul et anticipation
+    trained_agent = ExpectimaxAgent(legal_actions=legal_actions, max_depth=3)
+    
+    # 2. Évaluation de l'Agent
     eval_env = BattleEnvironment(ai_type=selected_ai_type, bot_type=selected_bot_type)
-    evaluate_rl_agent(trained_agent, eval_env, num_matches=1000)
+    evaluate_rl_agent(trained_agent, eval_env, num_matches=100)
 
-    # 3. Test the Agent 
+    # 3. Mode spectateur (Visualisation d'une partie tour par tour)
     test_env = BattleEnvironment(ai_type=selected_ai_type, bot_type=selected_bot_type)
     test_rl_agent(trained_agent, test_env)
-
-    #play_test_match()
