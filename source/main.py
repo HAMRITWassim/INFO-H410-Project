@@ -1,6 +1,7 @@
 from environment import BattleEnvironment, TYPES
 from bot import get_heuristic_bot_action
 from ai_rl import QLearningAgent
+from ai_mdp import ValueIterationAgent
 import random
 import copy
 
@@ -148,6 +149,31 @@ def test_rl_agent(agent, env):
     print("\n--- BATTLE END ---")
     print(f"The winner is: {env.get_winner()}!")
 
+def setup_mdp_agent(ai_type, bot_type):
+    print(f"\n--- SOLVING MDP FOR {ai_type} vs {bot_type} ---")
+ 
+    legal_actions = [f"Attack_{ai_type}", "Heal", "Defend"]
+    agent = ValueIterationAgent(legal_actions=legal_actions)
+ 
+    # State space must match _get_state_key() exactly:
+    # (ai_hp, ai_mana, ai_pots, bot_hp, bot_mana)
+    hp_levels   = ["High", "Med", "Low"]
+    mana_levels = ["High", "Low", "Empty"]   # <-- 3 levels now, not bool
+    potion_counts = [0, 1, 2, 3]
+ 
+    all_states = []
+    for ai_hp in hp_levels:
+        for ai_mana in mana_levels:
+            for ai_pots in potion_counts:
+                for bot_hp in hp_levels:
+                    for bot_mana in mana_levels:
+                        all_states.append((ai_hp, ai_mana, ai_pots, bot_hp, bot_mana))
+ 
+    agent.solve_mdp(all_states)
+    print(f"--- MDP SOLVED ({len(all_states)} states) ---")
+    return agent
+ 
+
 def play_test_match():
     """
     Main game loop to simulate a battle
@@ -219,6 +245,7 @@ def choose_type(player_name):
             print("Invalid input. Please enter a number.")
 
 # Run the simulation
+"""
 if __name__ == "__main__":
     # 0. Choose the types
     print("=== SETUP MATCH ===")
@@ -240,3 +267,31 @@ if __name__ == "__main__":
     test_rl_agent(trained_agent, test_env)
 
     #play_test_match()
+"""
+
+
+if __name__ == "__main__":
+    # 0. Setup
+    selected_ai_type = choose_type("AI")
+    selected_bot_type = choose_type("Bot")
+    env = BattleEnvironment(ai_type=selected_ai_type, bot_type=selected_bot_type)
+
+    # --- APPROACH 1: Q-LEARNING (Reinforcement Learning) ---
+    print("\n" + "="*30)
+    print("APPROACH A: Q-LEARNING")
+    rl_agent = train_rl_agent(ai_type=selected_ai_type, bot_type=selected_bot_type, episodes=5000)
+    rl_winrate = evaluate_rl_agent(rl_agent, env, num_matches=1000)
+
+    # --- APPROACH 2: VALUE ITERATION (Model-Based MDP) ---
+    print("\n" + "="*30)
+    print("APPROACH B: VALUE ITERATION")
+    mdp_agent = setup_mdp_agent(ai_type=selected_ai_type, bot_type=selected_bot_type)
+    mdp_winrate = evaluate_rl_agent(mdp_agent, env, num_matches=1000)
+
+    # --- FINAL COMPARISON ---
+    print("\n" + "!"*30)
+    print(f"FINAL RESULTS {selected_ai_type} vs {selected_bot_type}:")
+    print(f"RL Agent Winrate  : {rl_winrate}%")
+    print(f"MDP Agent Winrate : {mdp_winrate}%")
+    print("!"*30)
+
