@@ -153,7 +153,7 @@ def setup_mdp_agent(ai_type, bot_type):
     print(f"\n--- SOLVING MDP FOR {ai_type} vs {bot_type} ---")
  
     legal_actions = [f"Attack_{ai_type}", "Heal", "Defend"]
-    agent = ValueIterationAgent(legal_actions=legal_actions)
+    agent = ValueIterationAgent(ai_type=ai_type, bot_type=bot_type, legal_actions=legal_actions)
  
     # State space must match _get_state_key() exactly:
     # (ai_hp, ai_mana, ai_pots, bot_hp, bot_mana)

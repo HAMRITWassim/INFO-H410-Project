@@ -1,17 +1,22 @@
 import random
+from environment import TYPE_CHART, BASE_DAMAGE
 
 class ValueIterationAgent:
     """
     Model-Based Agent that solves the MDP using Value Iteration.
     It computes the optimal policy by anticipating all possible outcomes.
     """
-    def __init__(self, legal_actions, gamma=0.9, theta=0.001):
+    def __init__(self, ai_type, bot_type, legal_actions, gamma=0.9, theta=0.001):
+        self.ai_type = ai_type
+        self.bot_type = bot_type
+        self.damage_multiplier = TYPE_CHART[self.ai_type][self.bot_type]
         self.legal_actions = legal_actions
         self.gamma = gamma    # Discount factor: importance of future rewards
         self.theta = theta    # Convergence threshold
 
         self.values = {}      # V(s): The expected utility of each state
         self.policy = {}      # pi(s): The best action for each state
+
 
     def _get_state_key(self, env_state):
         """
@@ -86,13 +91,23 @@ class ValueIterationAgent:
 
         # ---- helpers ----
         def hp_after_damage(hp_level, damage_level):
-            # Rough mapping: what HP level is reached after taking 'damage_level' damage
             hp_map = {"High": 75, "Med": 35, "Low": 10}
-            dmg_map = {"Normal": 18, "Crit": 27}  # BASE_DAMAGE*0.9 expected, crit*1.5
-            new_hp = hp_map[hp_level] - dmg_map[damage_level]
+            
+            # base damage * type multiplier * precision
+            base_expected = BASE_DAMAGE * self.damage_multiplier * 0.9
+            
+            if damage_level == "Normal":
+                actual_damage = base_expected
+
+            else: # Crit
+                actual_damage = base_expected * 1.5 # CRIT_MULTIPLIER
+
+            new_hp = hp_map[hp_level] - actual_damage
+            
             if new_hp > 50: return "High"
             elif new_hp > 20: return "Med"
-            else: return "Low"
+            elif new_hp > 0: return "Low"
+            else: return "Dead"
 
         def mana_after_attack(mana_level):
             mana_map = {"High": 35, "Low": 15, "Empty": 0}
