@@ -74,7 +74,7 @@ class BattleEnvironment:
 
 
 
-    def execute_turn(self, action_ai, action_bot, verbose=True):
+    def execute_turn(self, action_ai, action_bot, verbose=True, force_ai_hit=None, force_ai_crit=None):
         """Executes the actions for both players in a single turn"""
 
         # Reset defending stance at the beginning of the turn
@@ -82,17 +82,21 @@ class BattleEnvironment:
         self.state["Bot"]["is_defending"] = False
 
         # Phase 1: Priority moves (Defend and Heal happen before attacks)
-        self.process_action("AI", "Bot", action_ai, is_priority_phase=True, verbose=verbose)
+        self.process_action("AI", "Bot", action_ai, is_priority_phase=True, verbose=verbose, force_hit=force_ai_hit, force_crit=force_ai_crit)
         self.process_action("Bot", "AI", action_bot, is_priority_phase=True, verbose=verbose)
 
         # Phase 2: Attack moves
-        self.process_action("AI", "Bot", action_ai, is_priority_phase=False, verbose=verbose)
+        self.process_action("AI", "Bot", action_ai, is_priority_phase=False, verbose=verbose, force_hit=force_ai_hit, force_crit=force_ai_crit)
         self.process_action("Bot", "AI", action_bot, is_priority_phase=False, verbose=verbose)
 
 
 
-    def process_action(self, attacker, defender, action, is_priority_phase, verbose=True):
-        """Processes a single action based on the current phase"""
+    def process_action(self, attacker, defender, action, is_priority_phase, verbose=True, force_hit=None, force_crit=None):
+        """
+        Processes a single action based on the current phase.
+        The 'force_hit' and 'force_crit' parameters act as "remote controls" 
+        for the Expectiminimax AI to simulate specific parallel futures without using real randomness.
+        """
         if self.state[attacker]["HP"] <= 0:
             return # A defeated player cannot act
         
@@ -135,12 +139,24 @@ class BattleEnvironment:
             
             self.state[attacker]["Mana"] -= COST_ATTACK
 
-            # Attack misses
-            if random.random() < PROBA_MISS:
+            # --- ATTACK PRECISION
+
+            # Checks if the AI is simulating a hit/miss
+            if force_hit is not None:
+
+                # force_hit = True (Attack guaranteed to hit in simulation)
+                # force_hit = False (Attack guaranteed to miss in simulation)
+                is_miss = not force_hit
+
+            # Randomize miss chance during REAL game
+            else:
+                is_miss = (random.random() < PROBA_MISS)
+
+
+            if is_miss:
                 if verbose:                
                     print(f"[{attacker}] {action} (-{COST_ATTACK} Mana) -> (MISSED)")
-
-                return 
+                return
 
             # Calculate base damage
             attack_type = action.split("_")[1]
@@ -155,9 +171,19 @@ class BattleEnvironment:
 
             damage *= TYPE_CHART[attack_type][defender_type]
 
-            # Critical hit
+            # --- CRTITCAL HIT
+
             crit_tag = ""
-            if random.random() < PROBA_CRIT:
+            
+            # Check if AI is simulating a critical hit
+            if force_crit is not None:
+                is_crit = force_crit
+
+            # Random chance of critical hit in REAl game
+            else:
+                is_crit = (random.random() < PROBA_CRIT)
+            
+            if is_crit:
                 damage *= CRIT_MULTIPLIER
                 crit_tag = " (CRITICAL HIT)"
 
