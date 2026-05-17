@@ -1,8 +1,11 @@
 from environment import BattleEnvironment, TYPES
 from bot import get_heuristic_bot_action
 from ai_rl import QLearningAgent
+from ai_mdp import ValueIterationAgent
+from ai_expectiminimax import ExpectiminimaxAgent
 import random
 import copy
+import time
 
 def calculate_reward(old_state, new_state, is_game_over, winner):
     """
@@ -23,16 +26,17 @@ def calculate_reward(old_state, new_state, is_game_over, winner):
     
     return float(damage_dealt - damage_taken)
 
+
 def train_rl_agent(ai_type, bot_type, episodes=5000):
     """
-    Phase 1: Training the agent 
+    Phase 1 (RL): Training the Q-Learning agent 
     """
-    print(f"--- STARTING TRAINING FOR {episodes} EPISODES ---")
+    print(f"\n--- STARTING RL TRAINING FOR {episodes} EPISODES ---")
     
     # Initialize Environment and Agent
     env = BattleEnvironment(ai_type=ai_type, bot_type=bot_type)
     
-    # can only use its OWN TYPE attack, heal, or defend
+    # Can only use its OWN TYPE attack, heal, or defend
     legal_actions = [f"Attack_{env.ai_type}", "Heal", "Defend"]
     agent = QLearningAgent(legal_actions=legal_actions)
 
@@ -74,14 +78,43 @@ def train_rl_agent(ai_type, bot_type, episodes=5000):
             print(f"Episode {episode + 1}/{episodes} completed. AI Winrate: {(win_count/1000)*100:.1f}%")
             win_count = 0 # Reset win count for the next batch
 
-    print("--- TRAINING COMPLETE ---")
+    print("--- RL TRAINING COMPLETE ---")
     return agent
 
-def evaluate_rl_agent(agent, env, num_matches=1000):
+
+def setup_mdp_agent(ai_type, bot_type):
     """
-    Phase 2: Evaluating the trained agent over multiple matchesç;
+    Phase 1 (MDP): Solving the MDP using Value Iteration
     """
-    print(f"\n--- EVALUATING AGENT OVER {num_matches} MATCHES ---")
+    print(f"\n--- SOLVING MDP FOR {ai_type} vs {bot_type} ---")
+    
+    legal_actions = [f"Attack_{ai_type}", "Heal", "Defend"]
+    agent = ValueIterationAgent(ai_type=ai_type, bot_type=bot_type, legal_actions=legal_actions)
+    
+    # State space must match the discretization in ai_mdp.py exactly
+    hp_levels   = ["High", "Med", "Low"]
+    mana_levels = ["High", "Low", "Empty"]
+    potion_counts = [0, 1, 2, 3]
+    
+    all_states = []
+    for ai_hp in hp_levels:
+        for ai_mana in mana_levels:
+            for ai_pots in potion_counts:
+                for bot_hp in hp_levels:
+                    for bot_mana in mana_levels:
+                        all_states.append((ai_hp, ai_mana, ai_pots, bot_hp, bot_mana))
+    
+    agent.solve_mdp(all_states)
+    print(f"--- MDP SOLVED ({len(all_states)} states) ---")
+    return agent
+
+
+def evaluate_agent(agent, env, num_matches=1000):
+    """
+    Phase 2: Evaluating any trained/solved agent over multiple matches.
+    Works for RL, MDP, and Expectiminimax since they all share the 'choose_action' method
+    """
+    print(f"--- EVALUATING AGENT OVER {num_matches} MATCHES ---")
     win_count = 0
     loss_count = 0
     draw_count = 0
@@ -93,7 +126,7 @@ def evaluate_rl_agent(agent, env, num_matches=1000):
         while not env.is_game_over():
             state = env.get_state()
             
-            # No random action (Epsilon = 0)
+            # No random action (Epsilon = 0 during evaluation)
             action_ai = agent.choose_action(state, is_training=False)
             action_bot = get_heuristic_bot_action(state, env.bot_type, env.ai_type)
             
@@ -114,12 +147,13 @@ def evaluate_rl_agent(agent, env, num_matches=1000):
 
     win_rate = (win_count / num_matches) * 100
     print(f"Results: {win_count} Wins | {loss_count} Losses | {draw_count} Draws")
-    print(f"Trained AI Winrate: {win_rate:.1f}%")
+    print(f"Tested AI Winrate: {win_rate:.1f}%\n")
     return win_rate
 
-def test_rl_agent(agent, env):
+
+def test_agent(agent, env):
     """
-    Phase 3: Testing the trained agent
+    Phase 3: Testing the agent 
     """
     print("\n--- BATTLE START (TESTING MODE) ---")
     env.reset()
@@ -129,7 +163,6 @@ def test_rl_agent(agent, env):
         print(f"\n=== TURN {turn_number} ===")
         state = env.get_state()
         
-        # No random action (Epsilon = 0)
         action_ai = agent.choose_action(state, is_training=False)
         action_bot = get_heuristic_bot_action(state, env.bot_type, env.ai_type)
         
@@ -144,61 +177,14 @@ def test_rl_agent(agent, env):
             print("\nLIMIT REACHED, NO WINNER!")
             return
             
-
     print("\n--- BATTLE END ---")
     print(f"The winner is: {env.get_winner()}!")
 
-def play_test_match():
-    """
-    Main game loop to simulate a battle
-    """
-    print("--- BATTLE START ---")
-    
-    # 1. Initialize the environment
-    env = BattleEnvironment(ai_type="Water", bot_type="Grass")
-    turn_number = 1
-
-    # 2. The Game Loop
-    # Runs as long as neither player's HP has reached 0
-    while not env.is_game_over():
-        print(f"\n\n=== TURN {turn_number} ===")
-        
-        # Get the current state to feed to the decision makers
-        state = env.get_state()
-        
-        # Display stats so we can track the battle in the console
-        print(f"AI  (Fire)  - HP: {state['AI']['HP']}, Mana: {state['AI']['Mana']}")
-        print(f"Bot (Grass) - HP: {state['Bot']['HP']}, Mana: {state['Bot']['Mana']}\n")
-
-        # --- DECISION PHASE ---
-        
-        # BOT CHOICE (using heuristics)
-        action_bot = get_heuristic_bot_action(state, env.bot_type, env.ai_type)
-        
-        # AI CHOICE
-
-        # TODO: ALGORITHM IMPLEMENTATION
-
-        # For now, it plays randomly to test the loop.
-        ai_attack = f"Attack_{env.ai_type}"
-        possible_actions = [ai_attack, "Heal", "Defend"]
-        action_ai = random.choice(possible_actions)
-
-
-        # --- EXECUTION PHASE ---
-        
-        # Send both actions to the game engine to handle priorities and damage
-        env.execute_turn(action_ai, action_bot)
-        
-        turn_number += 1
-
-    # 3. End of the battle
-    print("\n--- BATTLE END ---")
-    winner = env.get_winner()
-    print(f"The winner is: {winner}!")
-
 
 def choose_type(player_name):
+    """
+    Interface to select the element type
+    """
     print(f"\nChoose {player_name} type:")
     print("1. Fire")
     print("2. Water")
@@ -218,7 +204,8 @@ def choose_type(player_name):
         except ValueError:
             print("Invalid input. Please enter a number.")
 
-# Run the simulation
+
+# --- MAIN EXECUTION ---
 if __name__ == "__main__":
     # 0. Choose the types
     print("=== SETUP MATCH ===")
@@ -226,17 +213,95 @@ if __name__ == "__main__":
     selected_bot_type = choose_type("Bot")
 
     print(f"\n--- AI TYPE: {selected_ai_type} ---")
-    print(f"--- BOT TYPE: {selected_bot_type} ---\n")
+    print(f"--- BOT TYPE: {selected_bot_type} ---")
 
-    # 1. Train the Agent
-    trained_agent = train_rl_agent(ai_type=selected_ai_type, bot_type=selected_bot_type, episodes=5000)
-    
-    # 2. Evaluate the Agent
+    # Base environment for evaluations
     eval_env = BattleEnvironment(ai_type=selected_ai_type, bot_type=selected_bot_type)
-    evaluate_rl_agent(trained_agent, eval_env, num_matches=1000)
 
-    # 3. Test the Agent 
-    test_env = BattleEnvironment(ai_type=selected_ai_type, bot_type=selected_bot_type)
-    test_rl_agent(trained_agent, test_env)
+    # ---------------------------------------------------------
+    # APPROACH 1: EXPECTIMINIMAX (Adversarial Search)
+    # ---------------------------------------------------------
+    print("\n" + "="*40)
+    print("APPROACH 1: EXPECTIMINIMAX")
+    print("="*40)
 
-    #play_test_match()
+    # Instantiation (no training needed)
+    expecti_agent = ExpectiminimaxAgent(ai_type=selected_ai_type, bot_type=selected_bot_type, max_depth=3)
+
+    # Record evaluation time
+    start_time = time.time()
+
+    # We use 100 matches instead of 1000 because tree search evaluates in real-time
+    expecti_winrate = evaluate_agent(expecti_agent, eval_env, num_matches=100)
+
+    expecti_eval_time = time.time() - start_time
+    expecti_time_per_match = (expecti_eval_time / 100) * 1000 # in ms
+
+    # ---------------------------------------------------------
+    # APPROACH 2: VALUE ITERATION (Markov Decision Process)
+    # ---------------------------------------------------------
+    print("\n" + "="*40)
+    print("APPROACH 2: VALUE ITERATION (MDP)")
+    print("="*40)
+
+    # Record resolution time
+    start_time = time.time()
+
+    mdp_agent = setup_mdp_agent(ai_type=selected_ai_type, bot_type=selected_bot_type)
+
+    mdp_prep_time = time.time() - start_time
+    
+
+    # Record evaluation time
+    start_time = time.time()
+
+    mdp_winrate = evaluate_agent(mdp_agent, eval_env, num_matches=1000)
+
+    mdp_eval_time = time.time() - start_time
+    mdp_time_per_match = (mdp_eval_time / 1000) * 1000  #in ms
+
+    # ---------------------------------------------------------
+    # APPROACH 3: Q-LEARNING (Reinforcement Learning)
+    # ---------------------------------------------------------
+    print("\n" + "="*40)
+    print("APPROACH 3: Q-LEARNING")
+    print("="*40)
+
+    # Record training time
+    start_time = time.time()
+
+    rl_agent = train_rl_agent(ai_type=selected_ai_type, bot_type=selected_bot_type, episodes=5000)
+
+    rl_prep_time = time.time() - start_time
+
+    # Record evaluation time
+    start_time = time.time()
+
+    rl_winrate = evaluate_agent(rl_agent, eval_env, num_matches=1000)
+
+    rl_eval_time = time.time() - start_time
+    rl_time_per_match = (rl_eval_time / 1000) * 1000 # in ms
+
+    # ---------------------------------------------------------
+    # FINAL DASHBOARD
+    # ---------------------------------------------------------
+    print("\n" + "!"*50)
+    print(f"FINAL RESULTS: AI ({selected_ai_type}) vs BOT ({selected_bot_type})")
+    print("!"*50)
+    
+    print("\n--- 1. EXPECTIMINIMAX ---")
+    print(f"Winrate          : {expecti_winrate}%")
+    print(f"Preparation Time : 0.00 seconds (No training needed)")
+    print(f"Avg Time/Match   : {expecti_time_per_match:.2f} ms")
+
+    print("\n--- 2. MARKOV DECISION PROCESS (VALUE ITERATION) ---")
+    print(f"Winrate          : {mdp_winrate}%")
+    print(f"Preparation Time : {mdp_prep_time:.2f} seconds (Solving MDP)")
+    print(f"Avg Time/Match   : {mdp_time_per_match:.2f} ms")
+
+    print("\n--- 3. Q-LEARNING ---")
+    print(f"Winrate          : {rl_winrate}%")
+    print(f"Preparation Time : {rl_prep_time:.2f} seconds (5000 episodes)")
+    print(f"Avg Time/Match   : {rl_time_per_match:.2f} ms")
+    print("!"*50)
+    
