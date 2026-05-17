@@ -1,4 +1,4 @@
-# AI Combat Simulator: A Comparative Analysis
+# Evaluating AI Agents in Stochastic Turn-Based Combat
 ### INFO-H410 - Techniques of Artificial Intelligence (ULB)
 
 This repository contains a comparative study of three distinct AI techniques—**Expectiminimax**, **Markov Decision Processes (MDP)**, and **Reinforcement Learning (Q-Learning)**—applied to a stochastic, turn-based battle environment. The goal is for an AI agent to defeat a heuristic-based Bot by managing resources (HP, Mana, Potions) and accounting for elemental advantages and game stochasticity.
